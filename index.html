@@ -1,0 +1,406 @@
+<title>분양가 프리미엄 분석</title>
+<style>
+  .viz-root {
+    color-scheme: light;
+    --surface-1:      #fcfcfb;
+    --page:           #f9f9f7;
+    --text-primary:   #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted:     #898781;
+    --grid:           #e1e0d9;
+    --baseline:       #c3c2b7;
+    --border:         rgba(11,11,11,0.10);
+    --series-sale:    #2a78d6;  /* 분양가 : blue slot1 */
+    --series-rt:      #e34948;  /* 실거래가 평균 : red (=--neg 톤 재사용, 팔레트 검증 완료) */
+    --dot-indiv:      #86b6ef;  /* 개별 단지 : sequential step250 (light blue, same hue family) */
+    --pos:            #2a78d6;  /* 프리미엄 양(+) : blue pole */
+    --neg:            #e34948;  /* 프리미엄 음(-) : red pole */
+    --neutral:        #f0efec;
+    --tile-bg:        #ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) .viz-root {
+      color-scheme: dark;
+      --surface-1:      #1a1a19;
+      --page:           #0d0d0d;
+      --text-primary:   #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted:     #898781;
+      --grid:           #2c2c2a;
+      --baseline:       #383835;
+      --border:         rgba(255,255,255,0.10);
+      --series-sale:    #3987e5;
+      --series-rt:      #e66767;
+      --dot-indiv:      #6da7ec;
+      --pos:            #3987e5;
+      --neg:            #e66767;
+      --neutral:        #383835;
+      --tile-bg:        #232322;
+    }
+  }
+  :root[data-theme="dark"] .viz-root {
+    color-scheme: dark;
+    --surface-1:      #1a1a19;
+    --page:           #0d0d0d;
+    --text-primary:   #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted:     #898781;
+    --grid:           #2c2c2a;
+    --baseline:       #383835;
+    --border:         rgba(255,255,255,0.10);
+    --series-sale:    #3987e5;
+    --series-rt:      #e66767;
+    --dot-indiv:      #6da7ec;
+    --pos:            #3987e5;
+    --neg:            #e66767;
+    --neutral:        #383835;
+    --tile-bg:        #232322;
+  }
+
+  * { box-sizing: border-box; }
+  .viz-root {
+    background: var(--page);
+    color: var(--text-primary);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    padding: 28px 24px 48px;
+    max-width: 980px;
+    margin: 0 auto;
+  }
+  h1 { font-size: 20px; font-weight: 700; margin: 0 0 4px; }
+  .subtitle { font-size: 13px; color: var(--text-secondary); margin: 0 0 20px; line-height: 1.5; }
+
+  .kpi-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px; }
+  .kpi-tile {
+    background: var(--tile-bg); border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .kpi-label { font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; }
+  .kpi-value { font-size: 26px; font-weight: 700; line-height: 1; }
+  .kpi-value.pos { color: var(--pos); }
+  .kpi-value.neg { color: var(--neg); }
+  .kpi-sub { font-size: 11.5px; color: var(--text-muted); margin-top: 6px; }
+
+  .filter-row { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
+  .filter-label { font-size: 12px; color: var(--text-secondary); }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .seg button {
+    font-family: inherit; font-size: 13px; font-weight: 600; padding: 7px 16px;
+    border: none; background: var(--surface-1); color: var(--text-secondary); cursor: pointer;
+  }
+  .seg button.active { background: var(--series-sale); color: #fff; }
+  .view-toggle {
+    margin-left: auto; font-size: 12.5px; font-weight: 600; color: var(--series-sale);
+    background: none; border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; cursor: pointer;
+    font-family: inherit;
+  }
+
+  .panel {
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px;
+    padding: 18px 20px 8px; margin-bottom: 18px;
+  }
+  .panel-title { font-size: 14px; font-weight: 700; margin: 0 0 2px; }
+  .panel-sub { font-size: 11.5px; color: var(--text-muted); margin: 0 0 12px; }
+
+  .legend { display: flex; gap: 16px; font-size: 12px; color: var(--text-secondary); margin-bottom: 10px; }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .legend-swatch { width: 10px; height: 10px; border-radius: 2px; }
+  .legend-dot { width: 10px; height: 10px; border-radius: 50%; }
+
+  .dist-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+    gap: 10px; margin-bottom: 6px;
+  }
+  .dist-card {
+    background: var(--page); border: 1px solid var(--border); border-radius: 10px;
+    padding: 10px 10px 4px;
+  }
+  .dist-card.wide { grid-column: span 2; }
+  .dist-card-head {
+    display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 2px;
+  }
+  .dist-name { font-size: 12.5px; font-weight: 700; color: var(--text-primary); }
+  .prem-badge { font-size: 11.5px; font-weight: 700; }
+  .prem-badge.pos { color: var(--pos); }
+  .prem-badge.neg { color: var(--neg); }
+
+  svg text { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .axis-label { fill: var(--text-muted); font-size: 10.5px; }
+  .gu-label { fill: var(--text-secondary); font-size: 11.5px; }
+  .value-label { fill: var(--text-primary); font-size: 10.5px; font-weight: 600; }
+  .value-label-inv { fill: #fff; font-size: 10.5px; font-weight: 600; }
+  .gridline { stroke: var(--grid); stroke-width: 1; }
+  .baseline { stroke: var(--baseline); stroke-width: 1; }
+
+  .bar-hit { fill: transparent; cursor: pointer; }
+
+  .tooltip {
+    position: fixed; pointer-events: none; z-index: 50;
+    background: var(--text-primary); color: var(--page);
+    font-size: 12px; line-height: 1.5; padding: 8px 11px; border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.25); opacity: 0; transition: opacity .1s;
+    max-width: 220px;
+  }
+  .tooltip b { font-weight: 700; }
+  .tooltip .row { display:flex; justify-content:space-between; gap:12px; }
+
+  .callouts { display: grid; gap: 10px; margin-bottom: 18px; }
+  .callout {
+    background: var(--surface-1); border: 1px solid var(--border); border-left: 3px solid var(--series-sale);
+    border-radius: 8px; padding: 12px 14px; font-size: 12.5px; line-height: 1.6; color: var(--text-secondary);
+  }
+  .callout b { color: var(--text-primary); }
+  .callout.warn { border-left-color: var(--neg); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td { text-align: right; padding: 7px 8px; border-bottom: 1px solid var(--grid); font-variant-numeric: tabular-nums; }
+  th:first-child, td:first-child { text-align: left; font-variant-numeric: normal; }
+  th { color: var(--text-muted); font-weight: 600; font-size: 11px; }
+  td.pos { color: var(--pos); font-weight: 600; }
+  td.neg { color: var(--neg); font-weight: 600; }
+  .table-wrap { overflow-x: auto; }
+
+  footer { font-size: 11px; color: var(--text-muted); line-height: 1.7; margin-top: 8px; }
+</style>
+
+<div class="viz-root">
+  <h1>서울 신규 분양가 vs 자치구 실거래가 비교</h1>
+  <p class="subtitle">2025.01~2026.06 신규 민영분양단지(분양가상한제 적용단지·강남/서초/송파/용산 제외) 23개 단지의 공급면적 평당가와, 해당 자치구 기존 아파트 실거래가(전용율 역산 공급면적 환산 추정치)를 비교합니다.</p>
+
+  <div class="kpi-row" id="kpiRow"></div>
+
+  <div class="filter-row">
+    <span class="filter-label">연한 파랑 = 개별 분양단지 분양가 · 진한 파랑 = 자치구 평균 분양가 · 빨강 = 자치구 실거래가 평균 · 막대 위 % = 실거래가 대비 분양가 프리미엄</span>
+    <button class="view-toggle" id="viewToggle">표로 보기</button>
+  </div>
+
+  <div id="chartView">
+    <div class="panel">
+      <p class="panel-title">전용 59타입 — 자치구별 신규 분양단지 분양가 vs 자치구 평균 vs 실거래가 평균 (공급면적 기준, 만원/3.3㎡)</p>
+      <p class="panel-sub">자치구마다 한 세트: 분양단지1·분양단지2… + 자치구 평균 분양가 + 자치구 실거래가 평균. 분양단지가 1개뿐인 자치구는 단지=평균이므로 평균 막대를 생략하고 해당 단지 막대를 평균 색상으로 표시. 프리미엄(%) 큰 순으로 정렬 · 15개 자치구 · 세로축은 15개 카드에 동일 척도 적용</p>
+      <div class="legend">
+        <span class="legend-item"><span class="legend-swatch" style="background:var(--dot-indiv)"></span>개별 분양단지 분양가</span>
+        <span class="legend-item"><span class="legend-swatch" style="background:var(--series-sale)"></span>자치구 평균 분양가</span>
+        <span class="legend-item"><span class="legend-swatch" style="background:var(--series-rt)"></span>자치구 실거래가 평균</span>
+      </div>
+      <div class="dist-grid" id="grid59"></div>
+    </div>
+
+    <div class="panel">
+      <p class="panel-title">전용 84타입 — 자치구별 신규 분양단지 분양가 vs 자치구 평균 vs 실거래가 평균 (공급면적 기준, 만원/3.3㎡)</p>
+      <p class="panel-sub">자치구마다 한 세트: 분양단지1·분양단지2… + 자치구 평균 분양가 + 자치구 실거래가 평균. 분양단지가 1개뿐인 자치구는 단지=평균이므로 평균 막대를 생략하고 해당 단지 막대를 평균 색상으로 표시. 프리미엄(%) 큰 순으로 정렬 · 신규 84타입 분양 표본이 있는 9개 자치구만 표시 · 세로축은 9개 카드에 동일 척도 적용</p>
+      <div class="legend">
+        <span class="legend-item"><span class="legend-swatch" style="background:var(--dot-indiv)"></span>개별 분양단지 분양가</span>
+        <span class="legend-item"><span class="legend-swatch" style="background:var(--series-sale)"></span>자치구 평균 분양가</span>
+        <span class="legend-item"><span class="legend-swatch" style="background:var(--series-rt)"></span>자치구 실거래가 평균</span>
+      </div>
+      <div class="dist-grid" id="grid84"></div>
+    </div>
+  </div>
+
+  <div id="tableView" style="display:none">
+    <div class="panel">
+      <p class="panel-title">전체 데이터</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th style="text-align:left">자치구</th><th>타입</th><th>분양단지수</th><th>분양세대수</th>
+            <th>분양평당가</th><th>실거래평당가</th><th>프리미엄(만원)</th><th>프리미엄(%)</th>
+          </tr></thead>
+          <tbody id="tableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="callouts">
+    <div class="callout"><b>84타입 프리미엄(+54.6%)이 59타입(+33.3%)보다 큰 이유는 84가 특별한 신축 프리미엄을 받아서가 아니라, 기존 실거래 시장에서 59의 공급면적당 평당가가 84보다 이미 더 높게 형성되어 있기 때문.</b> 59·84 표본이 모두 있는 9개 자치구 전부에서, 실거래가 기준 59의 공급면적 평당가는 84보다 평균 +14.7% 더 높음. 반면 신규 분양가 기준으로는 59가 84보다 평균 +7.6%만 더 높음.</div>
+    <div class="callout"><b>동작구는 59·84 두 타입 모두 최상위권 프리미엄</b>(+73.5%, +77.4%)이며 표본 단지도 5개로 가장 많아 신뢰도가 높습니다. 해당 지역 신규 공급의 시세 대비 메리트가 뚜렷합니다.</div>
+    <div class="callout warn"><b>중구·강동구 59타입은 분양가가 오히려 실거래가보다 낮음</b>(-5.0%, -6.6%). 다만 두 사례 모두 표본 단지 1개·세대수 100세대 미만의 소규모 공급이라 지역 전체로 일반화하기는 어렵습니다.</div>
+    <div class="callout">노원·동대문·마포·은평·중구·강동구는 조사기간 내 84타입 신규 분양 표본이 없어 비교에서 제외되었습니다(59타입만 비교 가능).</div>
+  </div>
+
+  <footer>
+    분양가: 서울_분양가_분석 결과(공급면적 평당가 실측). 실거래가: 서울_자치구별_실거래가_요약 결과(전용면적 실거래가에 신축단지 실측 평균 전용율 59타입 72.8%·84타입 75.6%를 적용해 공급면적 기준으로 역산한 추정치). 자치구 평균은 구 내 입지·연식 편차를 반영하지 못하므로 참고 지표로 활용할 것. 조회일 2026-08-29.
+  </footer>
+</div>
+
+<div class="tooltip" id="tooltip"></div>
+
+<script>
+const DATA = [{"구": "동작구", "타입": "59", "분양_평당가": 8237.4, "분양_단지수": 5, "분양_세대수": 618, "실거래_평당가": 4748.6, "실거래_건수": 1323, "프리미엄_만원": 3488.8, "프리미엄_%": 73.5}, {"구": "성북구", "타입": "59", "분양_평당가": 5655.0, "분양_단지수": 1, "분양_세대수": 402, "실거래_평당가": 3360.9, "실거래_건수": 2662, "프리미엄_만원": 2294.1, "프리미엄_%": 68.3}, {"구": "강서구", "타입": "59", "분양_평당가": 5828.0, "분양_단지수": 1, "분양_세대수": 14, "실거래_평당가": 3538.0, "실거래_건수": 1771, "프리미엄_만원": 2290.0, "프리미엄_%": 64.7}, {"구": "구로구", "타입": "59", "분양_평당가": 3882.0, "분양_단지수": 1, "분양_세대수": 452, "실거래_평당가": 2768.1, "실거래_건수": 1655, "프리미엄_만원": 1113.9, "프리미엄_%": 40.2}, {"구": "중랑구", "타입": "59", "분양_평당가": 3568.0, "분양_단지수": 1, "분양_세대수": 9, "실거래_평당가": 2544.2, "실거래_건수": 834, "프리미엄_만원": 1023.8, "프리미엄_%": 40.2}, {"구": "성동구", "타입": "59", "분양_평당가": 7929.0, "분양_단지수": 1, "분양_세대수": 62, "실거래_평당가": 5777.7, "실거래_건수": 1803, "프리미엄_만원": 2151.3, "프리미엄_%": 37.2}, {"구": "은평구", "타입": "59", "분양_평당가": 4676.0, "분양_단지수": 1, "분양_세대수": 323, "실거래_평당가": 3422.3, "실거래_건수": 1580, "프리미엄_만원": 1253.7, "프리미엄_%": 36.6}, {"구": "강북구", "타입": "59", "분양_평당가": 3640.0, "분양_단지수": 2, "분양_세대수": 15, "실거래_평당가": 2685.6, "실거래_건수": 626, "프리미엄_만원": 954.4, "프리미엄_%": 35.5}, {"구": "서대문구", "타입": "59", "분양_평당가": 4924.0, "분양_단지수": 1, "분양_세대수": 172, "실거래_평당가": 3917.2, "실거래_건수": 1580, "프리미엄_만원": 1006.8, "프리미엄_%": 25.7}, {"구": "마포구", "타입": "59", "분양_평당가": 7102.0, "분양_단지수": 1, "분양_세대수": 105, "실거래_평당가": 5674.7, "실거래_건수": 1522, "프리미엄_만원": 1427.3, "프리미엄_%": 25.2}, {"구": "영등포구", "타입": "59", "분양_평당가": 5329.7, "분양_단지수": 3, "분양_세대수": 256, "실거래_평당가": 4344.8, "실거래_건수": 1652, "프리미엄_만원": 984.9, "프리미엄_%": 22.7}, {"구": "노원구", "타입": "59", "분양_평당가": 3166.0, "분양_단지수": 1, "분양_세대수": 61, "실거래_평당가": 2590.0, "실거래_건수": 2518, "프리미엄_만원": 576.0, "프리미엄_%": 22.2}, {"구": "동대문구", "타입": "59", "분양_평당가": 4486.0, "분양_단지수": 1, "분양_세대수": 41, "실거래_평당가": 3778.6, "실거래_건수": 1617, "프리미엄_만원": 707.4, "프리미엄_%": 18.7}, {"구": "중구", "타입": "59", "분양_평당가": 4469.0, "분양_단지수": 1, "분양_세대수": 28, "실거래_평당가": 4706.0, "실거래_건수": 496, "프리미엄_만원": -237.0, "프리미엄_%": -5.0}, {"구": "강동구", "타입": "59", "분양_평당가": 4636.0, "분양_단지수": 1, "분양_세대수": 64, "실거래_평당가": 4961.2, "실거래_건수": 1984, "프리미엄_만원": -325.2, "프리미엄_%": -6.6}, {"구": "동작구", "타입": "84", "분양_평당가": 7542.8, "분양_단지수": 5, "분양_세대수": 520, "실거래_평당가": 4251.3, "실거래_건수": 2378, "프리미엄_만원": 3291.5, "프리미엄_%": 77.4}, {"구": "강서구", "타입": "84", "분양_평당가": 5381.0, "분양_단지수": 1, "분양_세대수": 178, "실거래_평당가": 3109.9, "실거래_건수": 2302, "프리미엄_만원": 2271.1, "프리미엄_%": 73.0}, {"구": "성북구", "타입": "84", "분양_평당가": 4865.0, "분양_단지수": 1, "분양_세대수": 408, "실거래_평당가": 2847.9, "실거래_건수": 2455, "프리미엄_만원": 2017.1, "프리미엄_%": 70.8}, {"구": "강북구", "타입": "84", "분양_평당가": 3439.0, "분양_단지수": 1, "분양_세대수": 3, "실거래_평당가": 2219.2, "실거래_건수": 862, "프리미엄_만원": 1219.8, "프리미엄_%": 55.0}, {"구": "중랑구", "타입": "84", "분양_평당가": 3516.5, "분양_단지수": 2, "분양_세대수": 248, "실거래_평당가": 2298.3, "실거래_건수": 1266, "프리미엄_만원": 1218.2, "프리미엄_%": 53.0}, {"구": "구로구", "타입": "84", "분양_평당가": 3695.0, "분양_단지수": 1, "분양_세대수": 124, "실거래_평당가": 2507.6, "실거래_건수": 1948, "프리미엄_만원": 1187.4, "프리미엄_%": 47.3}, {"구": "성동구", "타입": "84", "분양_평당가": 7260.0, "분양_단지수": 1, "분양_세대수": 8, "실거래_평당가": 5050.3, "실거래_건수": 1964, "프리미엄_만원": 2209.7, "프리미엄_%": 43.8}, {"구": "영등포구", "타입": "84", "분양_평당가": 5111.3, "분양_단지수": 3, "분양_세대수": 214, "실거래_평당가": 3722.4, "실거래_건수": 2059, "프리미엄_만원": 1389.0, "프리미엄_%": 37.3}, {"구": "서대문구", "타입": "84", "분양_평당가": 4521.0, "분양_단지수": 1, "분양_세대수": 112, "실거래_평당가": 3385.1, "실거래_건수": 1975, "프리미엄_만원": 1135.9, "프리미엄_%": 33.6}];
+
+const fmt = n => Math.round(n).toLocaleString('ko-KR');
+const fmtPct = n => (n>=0?'+':'') + n.toFixed(1) + '%';
+
+const tooltip = document.getElementById('tooltip');
+function showTip(evt, html) {
+  tooltip.innerHTML = html;
+  tooltip.style.opacity = 1;
+  const x = evt.clientX, y = evt.clientY;
+  tooltip.style.left = Math.min(x + 14, window.innerWidth - 240) + 'px';
+  tooltip.style.top = (y + 14) + 'px';
+}
+function hideTip() { tooltip.style.opacity = 0; }
+
+const COMPLEXES = [{"단지명": "청계 노르웨이숲", "구": "중구", "타입": "59", "평당가": 4469.0, "세대수": 28}, {"단지명": "고척 푸르지오 힐스테이트", "구": "구로구", "타입": "59", "평당가": 3882.0, "세대수": 452}, {"단지명": "고척 푸르지오 힐스테이트", "구": "구로구", "타입": "84", "평당가": 3695.0, "세대수": 124}, {"단지명": "힐스테이트 메디알레", "구": "은평구", "타입": "59", "평당가": 4676.0, "세대수": 323}, {"단지명": "리버센 SK VIEW 롯데캐슬", "구": "중랑구", "타입": "59", "평당가": 3568.0, "세대수": 9}, {"단지명": "리버센 SK VIEW 롯데캐슬", "구": "중랑구", "타입": "84", "평당가": 3163.0, "세대수": 6}, {"단지명": "디 아테온(THE ATHEON)", "구": "강동구", "타입": "59", "평당가": 4636.0, "세대수": 64}, {"단지명": "오티에르 포레", "구": "성동구", "타입": "59", "평당가": 7929.0, "세대수": 62}, {"단지명": "오티에르 포레", "구": "성동구", "타입": "84", "평당가": 7260.0, "세대수": 8}, {"단지명": "리버센트 푸르지오 위브", "구": "영등포구", "타입": "59", "평당가": 5101.0, "세대수": 17}, {"단지명": "리버센트 푸르지오 위브", "구": "영등포구", "타입": "84", "평당가": 4878.0, "세대수": 117}, {"단지명": "제기동역 아이파크", "구": "동대문구", "타입": "59", "평당가": 4486.0, "세대수": 41}, {"단지명": "상봉 센트럴 아이파크", "구": "중랑구", "타입": "84", "평당가": 3870.0, "세대수": 242}, {"단지명": "힐스테이트 이수역센트럴", "구": "동작구", "타입": "59", "평당가": 6967.0, "세대수": 9}, {"단지명": "힐스테이트 이수역센트럴", "구": "동작구", "타입": "84", "평당가": 6444.0, "세대수": 40}, {"단지명": "드파인 연희", "구": "서대문구", "타입": "59", "평당가": 4924.0, "세대수": 172}, {"단지명": "드파인 연희", "구": "서대문구", "타입": "84", "평당가": 4521.0, "세대수": 112}, {"단지명": "해링턴플레이스 노원 센트럴", "구": "노원구", "타입": "59", "평당가": 3166.0, "세대수": 61}, {"단지명": "래미안 엘라비네", "구": "강서구", "타입": "59", "평당가": 5828.0, "세대수": 14}, {"단지명": "래미안 엘라비네", "구": "강서구", "타입": "84", "평당가": 5381.0, "세대수": 178}, {"단지명": "더샵 프리엘라", "구": "영등포구", "타입": "59", "평당가": 5246.0, "세대수": 37}, {"단지명": "더샵 프리엘라", "구": "영등포구", "타입": "84", "평당가": 5287.0, "세대수": 44}, {"단지명": "더샵 신길센트럴시티", "구": "영등포구", "타입": "84", "평당가": 5169.0, "세대수": 53}, {"단지명": "더샵 신길센트럴시티", "구": "영등포구", "타입": "59", "평당가": 5642.0, "세대수": 202}, {"단지명": "라클라체자이드파인", "구": "동작구", "타입": "84", "평당가": 7605.0, "세대수": 176}, {"단지명": "라클라체자이드파인", "구": "동작구", "타입": "59", "평당가": 8299.0, "세대수": 169}, {"단지명": "공덕역자이르네", "구": "마포구", "타입": "59", "평당가": 7102.0, "세대수": 105}, {"단지명": "더 리치먼드 미아", "구": "강북구", "타입": "59", "평당가": 3441.0, "세대수": 14}, {"단지명": "아크로 리버스카이", "구": "동작구", "타입": "59", "평당가": 8722.0, "세대수": 16}, {"단지명": "아크로 리버스카이", "구": "동작구", "타입": "84", "평당가": 7872.0, "세대수": 175}, {"단지명": "써밋 더힐", "구": "동작구", "타입": "84", "평당가": 8581.0, "세대수": 31}, {"단지명": "써밋 더힐", "구": "동작구", "타입": "59", "평당가": 8936.0, "세대수": 386}, {"단지명": "북서울자이 폴라리스(보류지)", "구": "강북구", "타입": "84", "평당가": 3439.0, "세대수": 3}, {"단지명": "북서울자이 폴라리스(보류지)", "구": "강북구", "타입": "59", "평당가": 3839.0, "세대수": 1}, {"단지명": "드파인 아르티아", "구": "동작구", "타입": "59", "평당가": 8263.0, "세대수": 38}, {"단지명": "장위 푸르지오 마크원", "구": "성북구", "타입": "59", "평당가": 5655.0, "세대수": 402}, {"단지명": "장위 푸르지오 마크원", "구": "성북구", "타입": "84", "평당가": 4865.0, "세대수": 408}, {"단지명": "드파인 아르티아", "구": "동작구", "타입": "84", "평당가": 7212.0, "세대수": 98}];
+
+function getRows(type) {
+  return DATA.filter(d => d.타입 === type).sort((a,b) => b['프리미엄_%'] - a['프리미엄_%']);
+}
+
+function renderKPI() {
+  const r59 = DATA.filter(d=>d.타입==='59');
+  const r84 = DATA.filter(d=>d.타입==='84');
+  const avg = arr => arr.reduce((s,d)=>s+d['프리미엄_%'],0)/arr.length;
+  const allSorted = [...DATA].sort((a,b)=>b['프리미엄_%']-a['프리미엄_%']);
+  const top = allSorted[0];
+  const a59 = avg(r59), a84 = avg(r84);
+  document.getElementById('kpiRow').innerHTML = `
+    <div class="kpi-tile">
+      <div class="kpi-label">59타입 평균 프리미엄</div>
+      <div class="kpi-value ${a59>=0?'pos':'neg'}">${fmtPct(a59)}</div>
+      <div class="kpi-sub">15개 자치구 평균</div>
+    </div>
+    <div class="kpi-tile">
+      <div class="kpi-label">84타입 평균 프리미엄</div>
+      <div class="kpi-value ${a84>=0?'pos':'neg'}">${fmtPct(a84)}</div>
+      <div class="kpi-sub">9개 자치구 평균 (표본 있는 구만)</div>
+    </div>
+    <div class="kpi-tile">
+      <div class="kpi-label">전체 최고 프리미엄</div>
+      <div class="kpi-value pos">${top['구']} · ${top['타입']}타입</div>
+      <div class="kpi-sub">${fmtPct(top['프리미엄_%'])} · 분양단지 ${top['분양_단지수']}개</div>
+    </div>`;
+}
+
+function colBarPath(x, yTop, w, yBase, r) {
+  const rr = Math.min(r, w/2, Math.max(yBase-yTop,0));
+  return `M${x},${yBase} L${x},${yTop+rr} Q${x},${yTop} ${x+rr},${yTop} `
+       + `L${x+w-rr},${yTop} Q${x+w},${yTop} ${x+w},${yTop+rr} L${x+w},${yBase} Z`;
+}
+
+function truncName(name, max) {
+  return name.length > max ? name.slice(0, max-1)+'…' : name;
+}
+
+// One small bar chart per district: bars = [단지1, 단지2, ..., 자치구 평균 분양가, 자치구 실거래가 평균],
+// all districts of a type share the same y-scale so bar heights are comparable card-to-card.
+// 분양단지가 1개뿐인 자치구는 "단지" 막대와 "자치구 평균" 막대가 값이 동일하므로 평균 막대를 생략하고
+// 해당 단지 막대를 자치구 평균 막대 색상으로 표시한다.
+function renderDistrictGrid(type, gridId) {
+  const grid = document.getElementById(gridId);
+  const rows = getRows(type);
+  const globalMax = Math.max(...rows.flatMap(d => {
+    const cs = COMPLEXES.filter(c => c.구===d.구 && c.타입===type).map(c=>c.평당가);
+    return [d['분양_평당가'], d['실거래_평당가'], ...cs];
+  })) * 1.14;
+
+  grid.innerHTML = rows.map(d => {
+    const complexes = COMPLEXES.filter(c => c.구===d.구 && c.타입===type).sort((a,b)=>b.평당가-a.평당가);
+    const singleComplex = complexes.length === 1;
+    const bars = singleComplex
+      ? [...complexes.map((c,i) => ({kind:'avg', label: truncName(c.단지명,9), full: c.단지명, val: c.평당가, idx:i, rotate:true})),
+         {kind:'rt', label:'실거래평균', full:'자치구 실거래가 평균', val: d['실거래_평당가'], idx: complexes.length, rotate:false}]
+      : [...complexes.map((c,i) => ({kind:'complex', label: truncName(c.단지명,9), full: c.단지명, val: c.평당가, idx:i, rotate:true})),
+         {kind:'avg', label:'자치구평균', full:'자치구 평균 분양가', val: d['분양_평당가'], idx: complexes.length, rotate:false},
+         {kind:'rt', label:'실거래평균', full:'자치구 실거래가 평균', val: d['실거래_평당가'], idx: complexes.length+1, rotate:false}];
+
+    const n = bars.length;
+    const isWide = n >= 4;
+    const W = isWide ? 420 : 200, H = 190, padTop = 20, padBottom = 46, plotLeft = 16, plotRight = W - 6;
+    const baseY = H - padBottom, plotH = baseY - padTop;
+    const slotW = (plotRight-plotLeft)/n;
+    const barW = Math.min(26, slotW*0.6);
+    const yScale = v => baseY - (v/globalMax)*plotH;
+    const colorOf = kind => kind==='avg' ? 'var(--series-sale)' : kind==='rt' ? 'var(--series-rt)' : 'var(--dot-indiv)';
+
+    const isPos = d['프리미엄_%'] >= 0;
+    let svgEl = [];
+    svgEl.push(`<line class="baseline" x1="${plotLeft}" y1="${baseY}" x2="${plotRight}" y2="${baseY}"/>`);
+    bars.forEach((b, i) => {
+      const cx = plotLeft + slotW*(i+0.5);
+      const yTop = yScale(b.val);
+      const color = colorOf(b.kind);
+      const labelY = H - padBottom + 12;
+      svgEl.push(`<path class="bar-hit" data-idx="${b.idx}" data-kind="${b.kind}" d="${colBarPath(cx-barW/2, yTop, barW, baseY, 3)}" style="fill:${color}"/>`);
+      svgEl.push(`<text x="${cx}" y="${yTop-4}" text-anchor="middle" font-size="9.5" font-weight="600" fill="var(--text-primary)">${fmt(b.val)}</text>`);
+      if (!b.rotate) {
+        svgEl.push(`<text x="${cx}" y="${labelY}" text-anchor="middle" font-size="8.5" font-weight="600" fill="var(--text-muted)">${b.label}</text>`);
+      } else {
+        svgEl.push(`<text x="${cx}" y="${labelY}" text-anchor="end" font-size="8.5" fill="var(--text-muted)" transform="rotate(-40 ${cx} ${labelY})">${b.label}</text>`);
+      }
+    });
+
+    const svgId = `card_${type}_${d['구']}`;
+    return `<div class="dist-card${isWide ? ' wide' : ''}">
+      <div class="dist-card-head">
+        <span class="dist-name">${d['구']}</span>
+        <span class="prem-badge ${isPos?'pos':'neg'}">${fmtPct(d['프리미엄_%'])}</span>
+      </div>
+      <svg id="${svgId}" width="100%" height="${H}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMinYMin meet"
+           data-gu="${d['구']}" data-type="${type}">${svgEl.join('')}</svg>
+    </div>`;
+  }).join('');
+
+  rows.forEach(d => {
+    const complexes = COMPLEXES.filter(c => c.구===d.구 && c.타입===type).sort((a,b)=>b.평당가-a.평당가);
+    const svg = document.getElementById(`card_${type}_${d['구']}`);
+    svg.querySelectorAll('.bar-hit').forEach(el => {
+      el.addEventListener('mousemove', (e) => {
+        const kind = el.dataset.kind;
+        if (kind === 'rt') {
+          showTip(e, `<b>${d['구']} · 전용${type}타입 · 자치구 실거래가 평균</b>
+            <div class="row"><span>실거래가(공급면적환산)</span><b>${fmt(d['실거래_평당가'])}만원</b></div>
+            <div class="row"><span>표본건수</span><b>${fmt(d['실거래_건수'])}건</b></div>
+            <div class="row"><span>분양가 프리미엄</span><b>${fmtPct(d['프리미엄_%'])}</b></div>`);
+        } else if (kind === 'avg' && complexes.length > 1) {
+          showTip(e, `<b>${d['구']} · 전용${type}타입 · 자치구 평균 분양가</b>
+            <div class="row"><span>평균 분양가</span><b>${fmt(d['분양_평당가'])}만원</b></div>
+            <div class="row"><span>실거래가(공급환산)</span><b>${fmt(d['실거래_평당가'])}만원</b></div>
+            <div class="row"><span>프리미엄</span><b>${fmtPct(d['프리미엄_%'])}</b></div>
+            <div class="row"><span>표본단지</span><b>${d['분양_단지수']}개 · ${d['분양_세대수']}세대</b></div>`);
+        } else {
+          const c = complexes[+el.dataset.idx];
+          showTip(e, `<b>${c.단지명}</b>
+            <div class="row"><span>구</span><b>${c.구}</b></div>
+            <div class="row"><span>분양가(공급면적)</span><b>${fmt(c.평당가)}만원</b></div>
+            <div class="row"><span>세대수</span><b>${fmt(c.세대수)}</b></div>`);
+        }
+      });
+      el.addEventListener('mouseleave', hideTip);
+    });
+  });
+}
+
+function renderTable() {
+  const rows = [...DATA].sort((a,b) => a['타입'].localeCompare(b['타입']) || b['프리미엄_%']-a['프리미엄_%']);
+  document.getElementById('tableBody').innerHTML = rows.map(d => `
+    <tr>
+      <td>${d['구']}</td>
+      <td>${d['타입']}</td>
+      <td>${d['분양_단지수']}</td>
+      <td>${fmt(d['분양_세대수'])}</td>
+      <td>${fmt(d['분양_평당가'])}</td>
+      <td>${fmt(d['실거래_평당가'])}</td>
+      <td class="${d['프리미엄_만원']>=0?'pos':'neg'}">${d['프리미엄_만원']>=0?'+':''}${fmt(d['프리미엄_만원'])}</td>
+      <td class="${d['프리미엄_%']>=0?'pos':'neg'}">${fmtPct(d['프리미엄_%'])}</td>
+    </tr>`).join('');
+}
+
+function render() {
+  renderKPI();
+  renderDistrictGrid('59', 'grid59');
+  renderDistrictGrid('84', 'grid84');
+}
+
+let showTable = false;
+document.getElementById('viewToggle').addEventListener('click', () => {
+  showTable = !showTable;
+  document.getElementById('chartView').style.display = showTable ? 'none' : 'block';
+  document.getElementById('tableView').style.display = showTable ? 'block' : 'none';
+  document.getElementById('viewToggle').textContent = showTable ? '차트로 보기' : '표로 보기';
+});
+
+renderTable();
+render();
+</script>
